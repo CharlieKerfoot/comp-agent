@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+
+# Competition data and artifacts
+data/
+submissions/
+solution/models/*.pkl
+solution/models/*.pt
+solution/models/*.h5
+
+# SQLite databases
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

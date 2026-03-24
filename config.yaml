@@ -1,0 +1,7 @@
+time_budget_hours: 48
+submission_limit_per_day: 5
+reserved_submissions_per_day: 1
+execution_timeout_seconds: 1800
+max_consecutive_failures: 5
+critique_interval: 5
+autonomy_mode: "approval"  # "approval" | "auto"
