@@ -20,7 +20,37 @@ The loop is time-budget-aware: it spends early time exploring approaches, then s
 uv sync
 ```
 
-Requires an `ANTHROPIC_API_KEY` environment variable for hypothesis generation and critique.
+Copy `.env.example` to `.env` and configure your LLM provider:
+
+```sh
+cp .env.example .env
+# then edit .env
+```
+
+**Two provider options:**
+
+- **`api`** (default) — Uses the Anthropic API. Set `ANTHROPIC_API_KEY` in `.env`. Billed per token.
+- **`claude-code`** — Uses the Claude Code CLI (`claude --print`). Consumes your Claude Code subscription instead of API credits. Requires `claude` to be installed and authenticated.
+
+Select via env var, CLI flag, or `config.yaml`:
+
+```sh
+# Env var (from .env)
+COMPETE_PROVIDER=claude-code
+
+# Or per-command CLI flag
+uv run compete --provider claude-code run
+```
+
+## Running commands
+
+The `compete` CLI is installed into the project's uv-managed virtualenv, not on your global PATH. Always invoke it via `uv run`:
+
+```sh
+uv run compete <command> [options]
+```
+
+All examples below use this form.
 
 ## Quick start
 
@@ -28,13 +58,13 @@ Requires an `ANTHROPIC_API_KEY` environment variable for hypothesis generation a
 
 ```sh
 # From a Kaggle competition
-compete init https://www.kaggle.com/competitions/titanic
+uv run compete init https://www.kaggle.com/competitions/titanic
 
 # From a custom spec file
-compete init spec.yaml --source custom
+uv run compete init spec.yaml --source custom
 
 # With a time budget
-compete init https://www.kaggle.com/competitions/titanic --time-budget 24
+uv run compete init https://www.kaggle.com/competitions/titanic --time-budget 24
 ```
 
 This parses the competition, downloads data, creates `problem_spec.json`, and initializes the tracker.
@@ -51,41 +81,41 @@ Create `solution/train.py` that:
 
 ```sh
 # Default: generates hypotheses, waits for your approval
-compete run
+uv run compete run
 
 # Autonomous mode, 10 iterations
-compete run --auto -n 10
+uv run compete run --auto -n 10
 
 # Force a specific phase
-compete run --phase ensemble
+uv run compete run --phase ensemble
 ```
 
 **4. Check progress**
 
 ```sh
-compete status
-compete status --verbose
-compete history --last 20
+uv run compete status
+uv run compete status --verbose
+uv run compete history --last 20
 ```
 
 **5. Submit**
 
 ```sh
-compete submit --validate-only  # check format first
-compete submit
+uv run compete submit --validate-only  # check format first
+uv run compete submit
 ```
 
 ## CLI reference
 
 | Command | Description |
 |---------|-------------|
-| `compete init <url-or-path>` | Initialize workspace from competition URL or spec file |
-| `compete run` | Run the optimization loop (approval-gated by default) |
-| `compete run --auto -n 5` | Run 5 autonomous iterations |
-| `compete approve <id>` | Execute a specific pending hypothesis |
-| `compete status` | Show current score, run history, pending hypotheses |
-| `compete history` | Show run history table |
-| `compete submit` | Validate and generate final submission |
+| `uv run compete init <url-or-path>` | Initialize workspace from competition URL or spec file |
+| `uv run compete run` | Run the optimization loop (approval-gated by default) |
+| `uv run compete run --auto -n 5` | Run 5 autonomous iterations |
+| `uv run compete approve <id>` | Execute a specific pending hypothesis |
+| `uv run compete status` | Show current score, run history, pending hypotheses |
+| `uv run compete history` | Show run history table |
+| `uv run compete submit` | Validate and generate final submission |
 
 ## Architecture
 
@@ -102,22 +132,25 @@ comp_agent/
 ```
 
 **Module boundaries:**
-- **Strategist** — pure LLM (Anthropic SDK). Generates and critiques hypotheses.
+- **Strategist** — pure LLM. Generates and critiques hypotheses.
 - **Executor** — mixed. Uses LLM for code generation, deterministic tooling for running/scoring.
 - **Tracker + Controller** — pure code. No LLM calls.
+- **LLM layer** (`comp_agent/llm.py`) — Thin provider abstraction. Routes all calls to either the Anthropic SDK or the Claude Code CLI.
 
 ## Configuration
 
 Edit `config.yaml`:
 
 ```yaml
+llm_provider: "api"              # "api" | "claude-code"
+llm_model: "claude-sonnet-4-20250514"
 time_budget_hours: 48
 submission_limit_per_day: 5
 reserved_submissions_per_day: 1
 execution_timeout_seconds: 1800
 max_consecutive_failures: 5
 critique_interval: 5
-autonomy_mode: "approval"  # "approval" | "auto"
+autonomy_mode: "approval"        # "approval" | "auto"
 ```
 
 ## Phase selection
@@ -153,7 +186,7 @@ rules:
   - no external data
 ```
 
-Then: `compete init spec.yaml --source custom`
+Then: `uv run compete init spec.yaml --source custom`
 
 ## Testing
 
