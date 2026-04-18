@@ -6,8 +6,12 @@ from pathlib import Path
 
 import click
 import yaml
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from comp_agent.controller.loop import load_config, run_loop
+from comp_agent.llm import set_default_provider
 from comp_agent.models import ProblemSpec
 from comp_agent.parser import detect_source, parse_problem
 from comp_agent.tracker.db import TrackerDB
@@ -15,9 +19,14 @@ from comp_agent.tracker.log import generate_report, write_report
 
 
 @click.group()
-def cli():
+@click.option("--provider", type=click.Choice(["api", "claude-code"]),
+              default="api", envvar="COMPETE_PROVIDER",
+              help="LLM provider: 'api' for Anthropic API, 'claude-code' for Claude Code CLI (subscription)")
+@click.option("--model", default="claude-sonnet-4-20250514", envvar="COMPETE_MODEL",
+              help="Model to use")
+def cli(provider: str, model: str):
     """Competition Agent - iterative score optimization for competitions."""
-    pass
+    set_default_provider(provider=provider, model=model)
 
 
 @cli.command()

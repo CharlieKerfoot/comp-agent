@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import anthropic
-
+from comp_agent.llm import get_provider
 from comp_agent.models import ProblemSpec
 
 
 def extract_from_text(problem_text: str, source_url: str | None = None) -> ProblemSpec:
-    client = anthropic.Anthropic()
+    llm = get_provider()
 
     prompt = f"""Analyze this mathematical/algorithmic puzzle and extract structured information.
 
@@ -24,14 +23,8 @@ Extract the following as JSON:
 
 Output ONLY valid JSON."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
     import json
-    data = json.loads(response.content[0].text)
+    data = json.loads(llm.ask(prompt, max_tokens=2048))
 
     return ProblemSpec(
         name=data.get("name", "Puzzle"),

@@ -3,16 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import anthropic
-
+from comp_agent.llm import LLMProvider, get_provider
 from comp_agent.models import Hypothesis, ProblemSpec
 from comp_agent.strategist.classify import classify_problem, get_phase_strategies
 
 
 class HypothesisGenerator:
-    def __init__(self, model: str = "claude-sonnet-4-20250514"):
-        self.client = anthropic.Anthropic()
-        self.model = model
+    def __init__(self, llm: LLMProvider | None = None):
+        self.llm = llm or get_provider()
 
     def generate(self, spec: ProblemSpec, history: list[dict],
                  phase: str, time_budget_hours: float,
@@ -27,13 +25,8 @@ class HypothesisGenerator:
             phase_hints, playbook, critiques, num_hypotheses,
         )
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        return self._parse_hypotheses(response.content[0].text)
+        text = self.llm.ask(prompt, max_tokens=4096)
+        return self._parse_hypotheses(text)
 
     def _build_prompt(self, spec: ProblemSpec, history: list[dict],
                       phase: str, time_budget_hours: float,

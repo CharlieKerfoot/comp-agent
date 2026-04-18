@@ -1,26 +1,18 @@
 from __future__ import annotations
 
-import anthropic
-
+from comp_agent.llm import LLMProvider, get_provider
 from comp_agent.models import Hypothesis, ProblemSpec
 
 
 class HypothesisImplementer:
-    def __init__(self, model: str = "claude-sonnet-4-20250514"):
-        self.client = anthropic.Anthropic()
-        self.model = model
+    def __init__(self, llm: LLMProvider | None = None):
+        self.llm = llm or get_provider()
 
     def implement(self, hypothesis: Hypothesis, spec: ProblemSpec,
                   current_code: str = "", max_retries: int = 3) -> str:
         prompt = self._build_prompt(hypothesis, spec, current_code)
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=8192,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        return response.content[0].text
+        return self.llm.ask(prompt, max_tokens=8192)
 
     def _build_prompt(self, hypothesis: Hypothesis, spec: ProblemSpec,
                       current_code: str) -> str:

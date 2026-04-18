@@ -22,6 +22,10 @@ solution/models/*.h5
 .vscode/
 *.swp
 
+# Secrets
+.env
+.env.local
+
 # OS
 .DS_Store
 

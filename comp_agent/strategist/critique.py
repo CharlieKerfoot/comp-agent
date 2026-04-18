@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import json
 
-import anthropic
-
+from comp_agent.llm import LLMProvider, get_provider
 from comp_agent.models import ProblemSpec
 
 
 class CritiqueEngine:
-    def __init__(self, model: str = "claude-sonnet-4-20250514"):
-        self.client = anthropic.Anthropic()
-        self.model = model
+    def __init__(self, llm: LLMProvider | None = None):
+        self.llm = llm or get_provider()
 
     def critique(self, code: str, score: float, spec: ProblemSpec) -> dict:
         prompt = f"""You are a competition grandmaster reviewing a solution.
@@ -39,13 +37,7 @@ Output as JSON:
 
 Output ONLY valid JSON."""
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        text = response.content[0].text.strip()
+        text = self.llm.ask(prompt, max_tokens=2048).strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
         if text.endswith("```"):
