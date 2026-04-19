@@ -54,9 +54,19 @@ def detect_source(location: str) -> str:
 def _extract_kaggle_slug(url_or_slug: str) -> str:
     if "/" not in url_or_slug or not url_or_slug.startswith("http"):
         return url_or_slug
-    # Extract slug from URL like https://www.kaggle.com/competitions/titanic
+    # Expect https://www.kaggle.com/competitions/<slug>[/...]
     parts = url_or_slug.rstrip("/").split("/")
-    return parts[-1]
+    if "competitions" not in parts:
+        raise ValueError(
+            f"Not a valid Kaggle competition URL: {url_or_slug!r}\n"
+            "Expected form: https://www.kaggle.com/competitions/<slug>"
+        )
+    idx = parts.index("competitions")
+    if idx + 1 >= len(parts) or not parts[idx + 1]:
+        raise ValueError(
+            f"Kaggle URL is missing a competition slug: {url_or_slug!r}"
+        )
+    return parts[idx + 1]
 
 
 def _fetch_page(url: str) -> str:

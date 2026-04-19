@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import click
-import yaml
 
+from comp_agent.config import load_config  # noqa: F401  (re-exported for back-compat)
 from comp_agent.controller.budget import SubmissionBudget, TimeBudget
 from comp_agent.controller.policy import select_phase, should_critique
-from comp_agent.executor.runner import CodeRunner
+from comp_agent.executor.implement import HypothesisImplementer
+from comp_agent.executor.runner import CodeRunner, solution_command
 from comp_agent.executor.snapshot import GitSnapshot
 from comp_agent.executor.validate import OutputValidator
 from comp_agent.models import Hypothesis, ProblemSpec, Result
@@ -22,12 +23,37 @@ from comp_agent.tracker.db import TrackerDB
 from comp_agent.tracker.log import write_report
 
 
-def load_config(config_path: str = "config.yaml") -> dict:
-    path = Path(config_path)
-    if path.exists():
-        with open(path) as f:
-            return yaml.safe_load(f)
-    return {}
+def _maybe_hint_missing_deps(error_text: str) -> None:
+    if "ModuleNotFoundError" not in error_text and "No module named" not in error_text:
+        return
+    click.echo(
+        "\nHint: the solution imports a package not listed in its PEP 723 "
+        "`# /// script` header. Add it to the `dependencies = [...]` block at "
+        "the top of solution/train.py and re-run."
+    )
+
+
+def _ensure_baseline_exists(spec: ProblemSpec) -> None:
+    """Auto-generate solution/train.py on first run if it's missing."""
+    train_path = Path("solution/train.py")
+    if train_path.exists():
+        return
+
+    from comp_agent.strategist.baseline import BaselineGenerator
+
+    click.echo("No solution/train.py found — generating baseline with LLM...")
+    code = BaselineGenerator().generate(spec)
+    train_path.parent.mkdir(parents=True, exist_ok=True)
+    Path("submissions").mkdir(exist_ok=True)
+    train_path.write_text(code)
+    click.echo(f"Wrote {train_path} ({len(code.splitlines())} lines)")
+
+    # Commit on main so hypothesis branches inherit the baseline.
+    from comp_agent.executor.snapshot import GitSnapshot
+    git = GitSnapshot()
+    if git.current_branch() == "main":
+        git._run("add", str(train_path), check=False)
+        git._run("commit", "-q", "-m", "add baseline solution", check=False)
 
 
 def run_loop(spec: ProblemSpec, tracker: TrackerDB,
@@ -43,7 +69,10 @@ def run_loop(spec: ProblemSpec, tracker: TrackerDB,
         reserved_per_day=config.get("reserved_submissions_per_day", 1),
     )
 
+    _ensure_baseline_exists(spec)
+
     generator = HypothesisGenerator()
+    implementer = HypothesisImplementer()
     critique_engine = CritiqueEngine()
     runner = CodeRunner(
         timeout_seconds=config.get("execution_timeout_seconds", 1800),
@@ -147,9 +176,13 @@ def run_loop(spec: ProblemSpec, tracker: TrackerDB,
         branch = git.create_branch(selected.id)
 
         try:
-            # Run the solution
+            # Rewrite solution/train.py to actually carry out the hypothesis.
+            click.echo("Implementing hypothesis (LLM is modifying solution/train.py)...")
+            implementer.apply(selected, spec)
+
+            # Run the modified solution
             result = runner.run(
-                [sys.executable, "solution/train.py"],
+                solution_command("solution/train.py"),
                 hypothesis_id=selected.id,
                 branch=branch,
                 metric=spec.metric,
@@ -161,7 +194,9 @@ def run_loop(spec: ProblemSpec, tracker: TrackerDB,
             # Commit changes
             git.commit_snapshot(selected.id, selected.description)
 
-            # Log run
+            # Snapshot best BEFORE logging this run, otherwise we'd compare
+            # against ourselves and every run would "not improve."
+            best_score_before = tracker.get_best_score(spec.metric_direction)
             tracker.log_run(result)
 
             # Evaluate
@@ -176,8 +211,7 @@ def run_loop(spec: ProblemSpec, tracker: TrackerDB,
                     )
                     click.echo(f"Validation: {msg}")
 
-                best_score = tracker.get_best_score(spec.metric_direction)
-                if result.score_improved(best_score, spec.metric_direction):
+                if result.score_improved(best_score_before, spec.metric_direction):
                     click.echo("ACCEPTED - Score improved!")
                     tracker.update_hypothesis_status(
                         selected.id, "accepted", result.id,
@@ -195,6 +229,7 @@ def run_loop(spec: ProblemSpec, tracker: TrackerDB,
                     git.checkout("main")
             else:
                 click.echo(f"FAILED: {result.status} - {result.error_message}")
+                _maybe_hint_missing_deps(result.error_message or "")
                 tracker.update_hypothesis_status(
                     selected.id, "error", result.id,
                 )

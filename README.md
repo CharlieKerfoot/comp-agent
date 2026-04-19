@@ -16,106 +16,139 @@ The loop is time-budget-aware: it spends early time exploring approaches, then s
 
 ## Install
 
+Install `compete` as a uv tool so it's on your PATH from anywhere. Use `--editable` so edits to this repo take effect without reinstalling:
+
 ```sh
-uv sync
+uv tool install --editable .
 ```
 
-Copy `.env.example` to `.env` and configure your LLM provider:
+After install, make sure uv's tool bin is on your PATH (`uv tool update-shell` will set this up if it isn't).
+
+For Kaggle competitions, also install the Kaggle CLI and configure credentials:
 
 ```sh
-cp .env.example .env
-# then edit .env
+uv tool install kaggle
+# Then drop a token at ~/.kaggle/kaggle.json
+# (Kaggle → Account → API → Create New Token)
+```
+
+Configure your LLM provider in `~/.comp-agent.env` or a per-workspace `.env`:
+
+```sh
+cp .env.example .env  # or ~/.comp-agent.env
+# then edit
 ```
 
 **Two provider options:**
 
-- **`api`** (default) — Uses the Anthropic API. Set `ANTHROPIC_API_KEY` in `.env`. Billed per token.
+- **`api`** (default) — Uses the Anthropic API. Set `ANTHROPIC_API_KEY`. Billed per token.
 - **`claude-code`** — Uses the Claude Code CLI (`claude --print`). Consumes your Claude Code subscription instead of API credits. Requires `claude` to be installed and authenticated.
 
 Select via env var, CLI flag, or `config.yaml`:
 
 ```sh
-# Env var (from .env)
 COMPETE_PROVIDER=claude-code
-
-# Or per-command CLI flag
-uv run compete --provider claude-code run
+# or per-command:
+compete --provider claude-code run
 ```
 
-## Running commands
+## Workspaces
 
-The `compete` CLI is installed into the project's uv-managed virtualenv, not on your global PATH. Always invoke it via `uv run`:
+Each competition lives in its own directory. `compete` reads and writes files — `problem_spec.json`, `data/`, `solution/`, `tracker.db`, git history — relative to your current working directory. There is no global registry: the workspace *is* the directory you're in.
+
+This means every `compete` command must be run from inside the workspace. Create one per competition:
 
 ```sh
-uv run compete <command> [options]
+mkdir -p ~/competitions/titanic && cd ~/competitions/titanic
+compete init https://www.kaggle.com/competitions/titanic
 ```
 
-All examples below use this form.
+`init` refuses to run inside the comp-agent source repo or any directory that already has a `problem_spec.json`.
 
 ## Quick start
 
 **1. Initialize a workspace**
 
 ```sh
+mkdir -p ~/competitions/titanic && cd ~/competitions/titanic
+
 # From a Kaggle competition
-uv run compete init https://www.kaggle.com/competitions/titanic
+compete init https://www.kaggle.com/competitions/titanic
 
 # From a custom spec file
-uv run compete init spec.yaml --source custom
+compete init spec.yaml --source custom
 
 # With a time budget
-uv run compete init https://www.kaggle.com/competitions/titanic --time-budget 24
+compete init https://www.kaggle.com/competitions/titanic --time-budget 24
 ```
 
-This parses the competition, downloads data, creates `problem_spec.json`, and initializes the tracker.
+This parses the competition, downloads data, creates `problem_spec.json`, and initializes the tracker — all inside the current directory.
 
-**2. Write a baseline**
+**2. Generate a baseline (or write your own)**
 
-Create `solution/train.py` that:
-- Reads data from `data/`
-- Trains a model
-- Prints `SCORE: <number>` to stdout
-- Saves predictions to `submissions/submission.csv`
+```sh
+compete baseline
+```
+
+This asks the LLM to read `problem_spec.json`, peek at `data/`, and write a minimal `solution/train.py` that trains a simple model and produces a valid submission. `compete run` will also generate this automatically on its first invocation if the file is missing.
+
+Solution scripts are run via `uv run --script`, so each `solution/train.py` declares its own dependencies with a [PEP 723](https://peps.python.org/pep-0723/) header:
+
+```python
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pandas", "numpy", "scikit-learn"]
+# ///
+```
+
+`uv` installs them on first run — no venv setup required. If you hand-write the script, include this header and declare every package you import. The script must:
+- Read data from `data/`
+- Train a model
+- Print `SCORE: <number>` on its own line
+- Save predictions to `submissions/submission.csv`
 
 **3. Run the optimization loop**
 
 ```sh
 # Default: generates hypotheses, waits for your approval
-uv run compete run
+compete run
 
 # Autonomous mode, 10 iterations
-uv run compete run --auto -n 10
+compete run --auto -n 10
 
 # Force a specific phase
-uv run compete run --phase ensemble
+compete run --phase ensemble
 ```
 
 **4. Check progress**
 
 ```sh
-uv run compete status
-uv run compete status --verbose
-uv run compete history --last 20
+compete status
+compete status --verbose
+compete history --last 20
 ```
 
 **5. Submit**
 
 ```sh
-uv run compete submit --validate-only  # check format first
-uv run compete submit
+compete submit --validate-only  # check format first
+compete submit
 ```
 
 ## CLI reference
 
+All commands run from inside a workspace directory.
+
 | Command | Description |
 |---------|-------------|
-| `uv run compete init <url-or-path>` | Initialize workspace from competition URL or spec file |
-| `uv run compete run` | Run the optimization loop (approval-gated by default) |
-| `uv run compete run --auto -n 5` | Run 5 autonomous iterations |
-| `uv run compete approve <id>` | Execute a specific pending hypothesis |
-| `uv run compete status` | Show current score, run history, pending hypotheses |
-| `uv run compete history` | Show run history table |
-| `uv run compete submit` | Validate and generate final submission |
+| `compete init <url-or-path>` | Initialize workspace from competition URL or spec file |
+| `compete baseline` | Generate `solution/train.py` from the spec (auto-runs on first `compete run`) |
+| `compete run` | Run the optimization loop (approval-gated by default) |
+| `compete run --auto -n 5` | Run 5 autonomous iterations |
+| `compete approve <id>` | Execute a specific pending hypothesis |
+| `compete status` | Show current score, run history, pending hypotheses |
+| `compete history` | Show run history table |
+| `compete submit` | Validate and generate final submission |
 
 ## Architecture
 
@@ -143,7 +176,7 @@ Edit `config.yaml`:
 
 ```yaml
 llm_provider: "api"              # "api" | "claude-code"
-llm_model: "claude-sonnet-4-20250514"
+llm_model: "claude-opus-4-7"
 time_budget_hours: 48
 submission_limit_per_day: 5
 reserved_submissions_per_day: 1
@@ -186,9 +219,11 @@ rules:
   - no external data
 ```
 
-Then: `uv run compete init spec.yaml --source custom`
+Then: `compete init spec.yaml --source custom`
 
 ## Testing
+
+From the comp-agent source repo:
 
 ```sh
 uv run pytest

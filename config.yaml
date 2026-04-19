@@ -1,6 +1,6 @@
 # LLM provider: "api" (Anthropic API key) or "claude-code" (Claude Code subscription)
 llm_provider: "claude-code"
-llm_model: "claude-sonnet-4-20250514"
+llm_model: "claude-opus-7"
 time_budget_hours: 48
 submission_limit_per_day: 5
 reserved_submissions_per_day: 1

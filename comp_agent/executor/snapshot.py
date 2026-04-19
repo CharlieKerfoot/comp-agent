@@ -31,7 +31,12 @@ class GitSnapshot:
         return branch_name
 
     def checkout(self, branch: str) -> None:
-        self._run("checkout", branch)
+        result = self._run("checkout", branch, check=False)
+        if result.returncode != 0:
+            # Stash any uncommitted work from a failed run and retry.
+            self._run("stash", "push", "-u", "-m", "compete-auto-stash",
+                      check=False)
+            self._run("checkout", branch, check=False)
 
     def commit_snapshot(self, hypothesis_id: str, message: str) -> str:
         self._run("add", "-A")
